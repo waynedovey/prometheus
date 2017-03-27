@@ -419,11 +419,9 @@ func (s *MemorySeriesStorage) Start() (err error) {
 
 	log.Info("Loading series map and head chunks...")
 	s.fpToSeries, s.numChunksToPersist, err = p.loadSeriesMapAndHeads()
-	for fp := range s.fpToSeries.fpIter() {
-		if series, ok := s.fpToSeries.get(fp); ok {
-			if !series.headChunkClosed {
-				s.headChunks.Inc()
-			}
+	for _, series := range s.fpToSeries.m {
+		if !series.headChunkClosed {
+			s.headChunks.Inc()
 		}
 	}
 
@@ -1330,16 +1328,7 @@ func (s *MemorySeriesStorage) waitForNextFP(numberOfFPs int, maxWaitDurationFact
 func (s *MemorySeriesStorage) cycleThroughMemoryFingerprints() chan model.Fingerprint {
 	memoryFingerprints := make(chan model.Fingerprint)
 	go func() {
-		var fpIter <-chan model.Fingerprint
-
-		defer func() {
-			if fpIter != nil {
-				for range fpIter {
-					// Consume the iterator.
-				}
-			}
-			close(memoryFingerprints)
-		}()
+		defer close(memoryFingerprints)
 
 		for {
 			// Initial wait, also important if there are no FPs yet.
@@ -1347,9 +1336,9 @@ func (s *MemorySeriesStorage) cycleThroughMemoryFingerprints() chan model.Finger
 				return
 			}
 			begin := time.Now()
-			fpIter = s.fpToSeries.fpIter()
+			fps := s.fpToSeries.sortedFPs()
 			count := 0
-			for fp := range fpIter {
+			for _, fp := range fps {
 				select {
 				case memoryFingerprints <- fp:
 				case <-s.loopStopping:
